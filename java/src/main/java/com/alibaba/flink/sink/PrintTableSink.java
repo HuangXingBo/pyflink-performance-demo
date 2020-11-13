@@ -31,15 +31,17 @@ public class PrintTableSink implements RetractStreamTableSink<Row> {
 
     private String[] fieldNames;
     private TypeInformation<?>[] fieldTypes;
+    private int outRow;
 
-    public PrintTableSink(String[] fieldNames, TypeInformation<?>[] fieldTypes) {
+    public PrintTableSink(String[] fieldNames, TypeInformation<?>[] fieldTypes, int outRow) {
         this.fieldNames = fieldNames;
         this.fieldTypes = fieldTypes;
+        this.outRow = outRow;
     }
 
     @Override
     public TableSink<Tuple2<Boolean, Row>> configure(String[] fieldNames, TypeInformation<?>[] fieldTypes) {
-        return new PrintTableSink(fieldNames, fieldTypes);
+        return new PrintTableSink(fieldNames, fieldTypes, outRow);
     }
 
     @Override
@@ -54,7 +56,7 @@ public class PrintTableSink implements RetractStreamTableSink<Row> {
 
     @Override
     public DataStreamSink<?> consumeDataStream(DataStream<Tuple2<Boolean, Row>> dataStream) {
-        return dataStream.addSink(new PrintSinkFunction())
+        return dataStream.addSink(new PrintSinkFunction(outRow))
                 .setParallelism(dataStream.getParallelism());
     }
 

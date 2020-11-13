@@ -52,10 +52,9 @@ def main():
     t_env.register_function("inc", inc)
     t_env.register_java_function("java_inc", "com.alibaba.flink.function.JavaInc")
 
-    num_rows = 1000000000
+    num_rows = 300000000
     t_env.from_table_source(RangeTableSource(1, num_rows, 1)).alias("id") \
         .select("inc(id) as id") \
-        .filter("id < 3") \
         .insert_into("sink")
 
     beg_time = time.time()

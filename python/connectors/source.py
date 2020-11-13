@@ -28,3 +28,15 @@ class RangeTableSource(TableSource):
         gateway = get_gateway()
         super(RangeTableSource, self).__init__(
             gateway.jvm.com.alibaba.flink.source.RangeTableSource(start, end, step))
+
+
+class RangeDynamicTableSource(TableSource):
+    """
+    A :class:`TableSource` for generating the data from start to end with step.
+    """
+
+    def __init__(self, start, end, step):
+        gateway = get_gateway()
+        super(RangeDynamicTableSource, self).__init__(
+            gateway.jvm.com.alibaba.flink.source.RangeDynamicTableSource(start, end, step))
+

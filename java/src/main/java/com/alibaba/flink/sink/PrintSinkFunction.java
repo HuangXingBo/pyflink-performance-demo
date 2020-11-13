@@ -25,13 +25,18 @@ import org.apache.flink.types.Row;
 public class PrintSinkFunction implements SinkFunction<Tuple2<Boolean, Row>> {
 
     private static final long serialVersionUID = 1L;
+    private final int outRow;
 
     private int i = 0;
+
+    public PrintSinkFunction(int outRow) {
+        this.outRow = outRow;
+    }
 
     @Override
     public void invoke(Tuple2<Boolean, Row> value, Context context) {
         i++;
-        if (i == 10000000) {
+        if (i == outRow) {
             System.out.println(value);
             i = 0;
         }
