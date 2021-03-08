@@ -36,7 +36,7 @@ def test_batch_job():
             .in_batch_mode().use_blink_planner().build())
     t_env._j_tenv.getPlanner().getExecEnv().setParallelism(1)
 
-    t_env.get_config().get_configuration().set_integer("python.fn-execution.bundle.size", 500)
+    # t_env.get_config().get_configuration().set_integer("python.fn-execution.bundle.size", 500)
     t_env.get_config().get_configuration().set_integer("python.fn-execution.bundle.time", 1000)
     t_env.get_config().get_configuration().set_boolean("pipeline.object-reuse", True)
 
@@ -65,12 +65,13 @@ def test_batch_job():
                 result += arg.max()
             accumulator.append(result)
 
-    t_env.register_function("mean", mean)
+    t_env.create_temporary_system_function("mean", mean)
+    t_env.create_java_temporary_function("java_avg", "com.alibaba.flink.function.JavaAvg")
     t_env.create_temporary_system_function("max_add", udaf(MaxAdd(),
                                                            result_type=DataTypes.INT(),
                                                            func_type="pandas"))
 
-    num_rows = 10000000
+    num_rows = 100000000
 
     t_env.execute_sql(f"""
         CREATE TABLE source (
@@ -87,16 +88,18 @@ def test_batch_job():
     """)
 
     # ------------------------ batch group agg -----------------------------------------------------
-    # t_env.register_table_sink(
-    #     "sink",
-    #     PrintTableSink(
-    #         ["value"],
-    #         [DataTypes.FLOAT(False)], 100))
-    # result = t_env.from_path("source").group_by("num").select("mean(id)")
-    # result.insert_into("sink")
-    # beg_time = time.time()
-    # t_env.execute("Python UDF")
-    # print("PyFlink Pandas batch group agg consume time: " + str(time.time() - beg_time))
+    t_env.register_table_sink(
+        "sink",
+        PrintTableSink(
+            ["value"],
+            [DataTypes.FLOAT(False)], 100000))
+    result = t_env.from_path("source").group_by("num").select("mean(id)")  # 76s
+    # result = t_env.from_path("source").group_by("num").select("id.avg")  # 13s
+    # result = t_env.from_path("source").group_by("num").select("java_avg(id)")  # 28s
+    result.insert_into("sink")
+    beg_time = time.time()
+    t_env.execute("Python UDF")
+    print("PyFlink Pandas batch group agg consume time: " + str(time.time() - beg_time))
 
     # ------------------------ batch group window agg ----------------------------------------------
     # t_env.get_config().get_configuration().set_integer(
@@ -110,9 +113,37 @@ def test_batch_job():
     # tumble_window = Tumble.over(expr.lit(1).hours) \
     #     .on(expr.col("rowtime")) \
     #     .alias("w")
+    # (true,1970-01-01 00:00:00.0,1970-01-01 01:00:00.0,4.9999848E7)
+    # (true,1970-01-01 00:00:00.0,1970-01-01 01:00:00.0,4.9999952E7)
+    # (true,1970-01-01 00:00:00.0,1970-01-01 01:00:00.0,5.0000048E7)
+    # (true,1970-01-01 00:00:00.0,1970-01-01 01:00:00.0,5.0000152E7)
+    # (true,1970-01-01 00:00:00.0,1970-01-01 01:00:00.0,5.0000248E7)
+    # PyFlink Pandas batch group window agg consume time: 128.3926558494568
+
     # result = t_env.from_path("source").window(tumble_window) \
     #     .group_by("w, num") \
     #     .select("w.start, w.end, mean(id)")
+
+    # (true,1970-01-01 00:00:00.0,1970-01-01 01:00:00.0,4.9999848E7)
+    # (true,1970-01-01 00:00:00.0,1970-01-01 01:00:00.0,4.9999952E7)
+    # (true,1970-01-01 00:00:00.0,1970-01-01 01:00:00.0,5.0000048E7)
+    # (true,1970-01-01 00:00:00.0,1970-01-01 01:00:00.0,5.0000152E7)
+    # (true,1970-01-01 00:00:00.0,1970-01-01 01:00:00.0,5.0000248E7)
+    # PyFlink Pandas batch group window agg consume time: 12.697863817214966
+    # result = t_env.from_path("source").window(tumble_window) \
+    #     .group_by("w, num") \
+    #     .select("w.start, w.end, id.avg")
+
+    # (true,1970-01-01 00:00:00.0,1970-01-01 01:00:00.0,4.9999852E7)
+    # (true,1970-01-01 00:00:00.0,1970-01-01 01:00:00.0,4.9999952E7)
+    # (true,1970-01-01 00:00:00.0,1970-01-01 01:00:00.0,5.0000052E7)
+    # (true,1970-01-01 00:00:00.0,1970-01-01 01:00:00.0,5.0000152E7)
+    # (true,1970-01-01 00:00:00.0,1970-01-01 01:00:00.0,5.0000252E7)
+    # PyFlink Pandas batch group window agg consume time: 63.56175494194031
+    # result = t_env.from_path("source").window(tumble_window) \
+    #     .group_by("w, num") \
+    #     .select("w.start, w.end, mean(id)")
+    #
     # result.insert_into("sink")
     # beg_time = time.time()
     # t_env.execute("Python UDF")
@@ -122,20 +153,32 @@ def test_batch_job():
     # t_env.register_table_sink(
     #     "sink",
     #     PrintTableSink(
-    #         ["num", "a", "b", "c", "d", "e", "f", "g", "h", "i"],
-    #         [DataTypes.INT(), DataTypes.FLOAT(), DataTypes.INT(), DataTypes.FLOAT(),
-    #          DataTypes.FLOAT(), DataTypes.FLOAT(), DataTypes.FLOAT(), DataTypes.FLOAT(),
-    #          DataTypes.FLOAT(), DataTypes.FLOAT(),
+    #         ["num", "a",
+    #          # "b", "c", "d", "e", "f",
+    #          # "g",
+    #          # "h", "i"
     #          ],
-    #         100))
+    #         [DataTypes.INT(), DataTypes.FLOAT(),
+    #          # DataTypes.FLOAT(), DataTypes.FLOAT(),
+    #          # DataTypes.FLOAT(), DataTypes.FLOAT(), DataTypes.FLOAT(),
+    #          # DataTypes.FLOAT(), DataTypes.FLOAT(),
+    #          ],
+    #         10000000))
     # beg_time = time.time()
+    # (true,7999,8000.0,8000.0,8000.0,8000.0,8000.0,8000.0,8000.0,8000.0,8000.0)
+    # (true,15999,16000.0,16000.0,16000.0,16000.0,16000.0,16000.0,16000.0,16000.0,16000.0)
+    # (true,23999,24000.0,24000.0,24000.0,24000.0,24000.0,24000.0,24000.0,24000.0,24000.0)
+    # (true,31999,32000.0,32000.0,32000.0,32000.0,32000.0,32000.0,32000.0,32000.0,32000.0)
+    # (true,39999,40000.0,40000.0,40000.0,40000.0,40000.0,40000.0,40000.0,40000.0,40000.0)
+    # (true,47999,48000.0,48000.0,48000.0,48000.0,48000.0,48000.0,48000.0,48000.0,48000.0)
+    # PyFlink Pandas batch group over window agg consume time: 130.6760711669922
     # t_env.execute_sql("""
     #             insert into sink
     #             select num,
     #              mean(id)
     #              over (PARTITION BY num ORDER BY rowtime
     #              ROWS BETWEEN UNBOUNDED preceding AND UNBOUNDED FOLLOWING),
-    #              max_add(id, id)
+    #              mean(id)
     #              over (PARTITION BY num ORDER BY rowtime
     #              ROWS BETWEEN UNBOUNDED preceding AND 0 FOLLOWING),
     #              mean(id)
@@ -159,6 +202,35 @@ def test_batch_job():
     #              mean(id)
     #              over (PARTITION BY num ORDER BY rowtime
     #              RANGE BETWEEN INTERVAL '20' MINUTE PRECEDING AND CURRENT ROW)
+    #             from source
+    #         """).wait()
+
+    #                  AVG(id)
+    #                  over (PARTITION BY num ORDER BY rowtime
+    #                  RANGE BETWEEN INTERVAL '20' MINUTE PRECEDING AND UNBOUNDED FOLLOWING),
+    #                  AVG(id)
+    #                  over (PARTITION BY num ORDER BY rowtime
+    #                  RANGE BETWEEN INTERVAL '20' MINUTE PRECEDING AND UNBOUNDED FOLLOWING),
+
+    # ,
+    #                  AVG(id)
+    #                  over (PARTITION BY num ORDER BY rowtime
+    #                  RANGE BETWEEN INTERVAL '20' MINUTE PRECEDING AND CURRENT ROW)
+
+    # ROWS BETWEEN UNBOUNDED preceding AND UNBOUNDED FOLLOWING)
+    # 151.00761222839355s
+    # 83.5823130607605
+
+    # ROWS BETWEEN UNBOUNDED preceding AND 0 FOLLOWING)
+    #
+    # 76.46760702133179
+
+    # t_env.execute_sql("""
+    #             insert into sink
+    #             select num,
+    #              mean(id)
+    #              over (PARTITION BY num ORDER BY rowtime
+    #              ROWS BETWEEN UNBOUNDED preceding AND 0 FOLLOWING)
     #             from source
     #         """).wait()
     # print("PyFlink Pandas batch group over window agg consume time: " + str(time.time() - beg_time))
@@ -200,6 +272,7 @@ def test_stream_job():
             accumulator.append(result)
 
     t_env.register_function("mean", mean)
+    t_env.register_java_function("java_avg", "com.alibaba.flink.function.JavaAvg")
     t_env.create_temporary_system_function("max_add", udaf(MaxAdd(),
                                                            result_type=DataTypes.INT(),
                                                            func_type="pandas"))
@@ -222,6 +295,30 @@ def test_stream_job():
     """)
 
     # ------------------------ stream group window agg ---------------------------------------------
+    # (true,1970-01-01 00:00:00.0,1970-01-01 01:00:00.0,1.0000402E7)
+    # (true,1970-01-01 00:00:00.0,1970-01-01 01:00:00.0,1.0000302E7)
+    # (true,1970-01-01 00:00:00.0,1970-01-01 01:00:00.0,1.0000202E7)
+    # (true,1970-01-01 00:00:00.0,1970-01-01 01:00:00.0,1.0000102E7)
+    # (true,1970-01-01 00:00:00.0,1970-01-01 01:00:00.0,1.0000002E7)
+    # (true,1970-01-01 00:00:00.0,1970-01-01 01:00:00.0,9999902.0)
+    # (true,1970-01-01 00:00:00.0,1970-01-01 01:00:00.0,9999802.0)
+    # (true,1970-01-01 00:00:00.0,1970-01-01 01:00:00.0,9999702.0)
+    # (true,1970-01-01 00:00:00.0,1970-01-01 01:00:00.0,9999602.0)
+    # (true,1970-01-01 00:00:00.0,1970-01-01 01:00:00.0,9999502.0)
+    # PyFlink Pandas stream group window agg consume time: 45.96089720726013
+
+    # (true,1970-01-01 00:00:00.0,1970-01-01 01:00:00.0,1.0000402E7)
+    # (true,1970-01-01 00:00:00.0,1970-01-01 01:00:00.0,1.0000302E7)
+    # (true,1970-01-01 00:00:00.0,1970-01-01 01:00:00.0,1.0000202E7)
+    # (true,1970-01-01 00:00:00.0,1970-01-01 01:00:00.0,1.0000102E7)
+    # (true,1970-01-01 00:00:00.0,1970-01-01 01:00:00.0,1.0000002E7)
+    # (true,1970-01-01 00:00:00.0,1970-01-01 01:00:00.0,9999902.0)
+    # (true,1970-01-01 00:00:00.0,1970-01-01 01:00:00.0,9999802.0)
+    # (true,1970-01-01 00:00:00.0,1970-01-01 01:00:00.0,9999702.0)
+    # (true,1970-01-01 00:00:00.0,1970-01-01 01:00:00.0,9999602.0)
+    # (true,1970-01-01 00:00:00.0,1970-01-01 01:00:00.0,9999502.0)
+    # PyFlink Pandas stream group window agg consume time: 14.910825967788696
+
     # t_env.register_table_sink(
     #     "sink",
     #     PrintTableSink(
@@ -233,13 +330,34 @@ def test_stream_job():
     #     .alias("w")
     # result = t_env.from_path("source").window(tumble_window) \
     #     .group_by("w, num") \
-    #     .select("w.start, w.end, mean(id)")
+    #     .select("w.start, w.end, java_avg(id)")
     # result.insert_into("sink")
     # beg_time = time.time()
     # t_env.execute("Python UDF")
     # print("PyFlink Pandas stream group window agg consume time: " + str(time.time() - beg_time))
 
     # ------------------------ stream over window agg ----------------------------------------------
+    # (true,4,5007.5)
+    # (true,4,10007.5)
+    # (true,4,15007.5)
+    # (true,4,20007.5)
+    # (true,4,25007.5)
+    # (true,4,30007.5)
+    # (true,2,35005.5)
+    # (true,4,40007.5)
+    # (true,0,45003.5)
+    # PyFlink Pandas stream group over window agg consume time: 507.26891112327576
+
+    # (true,4,5007.5)
+    # (true,4,10007.5)
+    # (true,4,15007.5)
+    # (true,4,20007.5)
+    # (true,4,25007.5)
+    # (true,4,30007.498)
+    # (true,2,35005.5)
+    # (true,4,40007.5)
+    # (true,0,45003.5)
+    # PyFlink Pandas stream group over window agg consume time: 52.51417398452759
     t_env.register_table_sink(
         "sink",
         PrintTableSink(
@@ -250,7 +368,7 @@ def test_stream_job():
     t_env.execute_sql("""
                 insert into sink
                 select num,
-                 mean(id)
+                 java_avg(id)
                  over (PARTITION BY num ORDER BY rowtime
                  RANGE BETWEEN INTERVAL '20' MINUTE PRECEDING AND CURRENT ROW)
                 from source
@@ -262,5 +380,5 @@ def test_stream_job():
 if __name__ == '__main__':
     logging.basicConfig(stream=sys.stdout, level=logging.INFO, format="%(message)s")
 
-    # test_batch_job()
-    test_stream_job()
+    test_batch_job()
+    # test_stream_job()

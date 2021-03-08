@@ -43,9 +43,9 @@ def main():
         "sink",
         PrintTableSink(
             ["id"],
-            [DataTypes.INT(False)]))
+            [DataTypes.INT(False)], 10000000))
 
-    @udf(input_types=[DataTypes.INT(False)], result_type=DataTypes.INT(False))
+    @udf(input_types=[DataTypes.INT(False)], result_type=DataTypes.INT(False), udf_type="pandas")
     def inc(x):
         return x + 1
 

@@ -26,11 +26,11 @@ class PrintTableSink(TableSink):
     A simple :class:`TableSink` to emit data as standard output.
     """
 
-    def __init__(self, field_names, field_types, outRow):
+    def __init__(self, field_names, field_types, out_row=100000):
         gateway = get_gateway()
         j_field_names = utils.to_jarray(gateway.jvm.String, field_names)
         j_field_types = utils.to_jarray(gateway.jvm.TypeInformation,
                                         [_to_java_type(field_type) for field_type in field_types])
         j_table_sink = gateway.jvm.com.alibaba.flink.sink.PrintTableSink(
-            j_field_names, j_field_types, outRow)
+            j_field_names, j_field_types, out_row)
         super(PrintTableSink, self).__init__(j_table_sink)
